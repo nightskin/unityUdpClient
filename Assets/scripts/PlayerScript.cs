@@ -7,7 +7,7 @@ using UnityEngine;
 public class PlayerScript : MonoBehaviour
 {
     public string id;
-    public float r;
-    public float g;
-    public float b;
+    public float r = 0;
+    public float g = 0;
+    public float b = 0;
 }

@@ -8,16 +8,17 @@ using System.Net;
 
 public class NetworkMan : MonoBehaviour
 {
-    public GameObject cube;
-    public List<GameObject> objs;
+    public GameObject playerPrefab;
+    public List<GameObject> p_objs;
     UdpClient udp;
-    bool spawnNeeded;
-    int numGameObjects;
+
     void Start()
     {
         udp = new UdpClient();
-        udp.Connect("3.130.163.55", 12345);
-        //udp.Connect("192.168.1.101", 12345);
+        p_objs = new List<GameObject>();
+
+        //udp.Connect("3.130.163.55", 12345);
+        udp.Connect("192.168.1.101", 12345);
         
         Byte[] sendBytes = Encoding.ASCII.GetBytes("connect");
 
@@ -25,20 +26,17 @@ public class NetworkMan : MonoBehaviour
 
         udp.BeginReceive(new AsyncCallback(OnReceived), udp);
         InvokeRepeating("HeartBeat", 1, 1);
-        numGameObjects = 0;
-        spawnNeeded = false;
     }
-
     void OnDestroy()
     {
         udp.Dispose();
     }
-    
-    public enum commands{
+    public enum commands
+    {
         NEW_CLIENT,
-        UPDATE
+        UPDATE,
+        DISCONNECT_CLIENT,
     };
-   
     [Serializable]
     public class Message
     {
@@ -55,41 +53,39 @@ public class NetworkMan : MonoBehaviour
             public float B;
         }
         public string id;
-        public receivedColor color = new receivedColor();
-        public bool drop = false;
+        public receivedColor color;
     }
-
     [Serializable]
     public class GameState
     {
-        public List<Player> players;
+        public List<Player>players;
     }
 
     public Message latestMessage;
     public GameState latestGameState;
-
+    public GameState prevGameState;
     void OnReceived(IAsyncResult result)
     {
         // this is what had been passed into BeginReceive as the second parameter:
         UdpClient socket = result.AsyncState as UdpClient;
+
         // points towards whoever had sent the message:
-        IPEndPoint source = new IPEndPoint(0, 0);
+        IPEndPoint msgSrc = new IPEndPoint(0, 0);
         // get the actual message and fill out the source:
-        byte[] serverMsg = socket.EndReceive(result, ref source);
+        byte[] message = socket.EndReceive(result, ref msgSrc);
         // do what you'd like with `message` here:
-        string serverData = Encoding.ASCII.GetString(serverMsg);
-        //Debug.Log("Got this: " + serverData);
-        latestMessage = JsonUtility.FromJson<Message>(serverData);
+        string returnData = Encoding.ASCII.GetString(message);
+
+        Debug.Log("Got this: " + returnData);
+        latestMessage = JsonUtility.FromJson<Message>(returnData);
         try
         {
-            switch(latestMessage.cmd)
+            switch (latestMessage.cmd)
             {
                 case commands.NEW_CLIENT:
-                    latestGameState.players = JsonUtility.FromJson<List<Player>>(serverData);
-                    spawnNeeded = true;
                     break;
                 case commands.UPDATE:
-                    latestGameState = JsonUtility.FromJson<GameState>(serverData);
+                    latestGameState = JsonUtility.FromJson<GameState>(returnData);
                     break;
                 default:
                     Debug.Log("Error");
@@ -106,41 +102,35 @@ public class NetworkMan : MonoBehaviour
 
     void SpawnPlayers()
     {
-        if (spawnNeeded)
+        if(latestGameState.players.Count > p_objs.Count)
         {
-            Player newp = new Player();
-            latestGameState.players.Add(newp);
-            Instantiate(cube);
-            GameObject temp = GameObject.Find("Cube(Clone)");
-            temp.name = numGameObjects.ToString();
-            objs.Add(temp);
+            p_objs.Add(Instantiate(playerPrefab));
         }
-        spawnNeeded = false;
     }
-
+    
     void UpdatePlayers()
     {
-        for(int p = 0; p<objs.Count; p++)
+        for(int p = 0; p< p_objs.Count; p++)
         {
-            objs[p].GetComponent<PlayerScript>().id = latestGameState.players[p].id;
-            objs[p].GetComponent<PlayerScript>().r = latestGameState.players[p].color.R;
-            objs[p].GetComponent<PlayerScript>().g = latestGameState.players[p].color.G;
-            objs[p].GetComponent<PlayerScript>().b = latestGameState.players[p].color.B;
+            p_objs[p].GetComponent<PlayerScript>().id = latestGameState.players[p].id;
+            
+            p_objs[p].GetComponent<PlayerScript>().r = latestGameState.players[p].color.R;
+            p_objs[p].GetComponent<PlayerScript>().g = latestGameState.players[p].color.G;
+            p_objs[p].GetComponent<PlayerScript>().b = latestGameState.players[p].color.B;
+
+            float r = p_objs[p].GetComponent<PlayerScript>().r;
+            float g = p_objs[p].GetComponent<PlayerScript>().g;
+            float b = p_objs[p].GetComponent<PlayerScript>().b;
+            Color c = new Color(r,g,b);
+            p_objs[p].GetComponent<PlayerScript>().GetComponent<MeshRenderer>().material.color = c;
         }
     }
 
     void DestroyPlayers()
     {
-        for(int p = 0; p<latestGameState.players.Count; p++)
-        {   
-            if (latestGameState.players[p].drop)
-            {
-                objs.RemoveAt(p);
-                latestGameState.players.RemoveAt(p);
-            }
-        }
+        
     }
-    
+
     void HeartBeat()
     {
         Byte[] sendBytes = Encoding.ASCII.GetBytes("heartbeat");
@@ -151,10 +141,6 @@ public class NetworkMan : MonoBehaviour
     {
         SpawnPlayers();
         UpdatePlayers();
-    }
-
-    private void OnApplicationQuit()
-    {
         DestroyPlayers();
     }
 }
